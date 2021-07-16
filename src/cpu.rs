@@ -52,6 +52,7 @@ impl OpCode {
 
 #[derive(Debug)]
 pub enum Mnemonic {
+    ADC,
     BRK,
     INX,
     LDA,
@@ -60,6 +61,14 @@ pub enum Mnemonic {
 }
 
 pub const CPU_OPCODES: &[OpCode] = &[
+    OpCode::new(0x69, Mnemonic::ADC, 2, 2, AddressingMode::Immediate),
+    OpCode::new(0x65, Mnemonic::ADC, 2, 3, AddressingMode::ZeroPage),
+    OpCode::new(0x75, Mnemonic::ADC, 2, 4, AddressingMode::ZeroPageX),
+    OpCode::new(0x6d, Mnemonic::ADC, 3, 4, AddressingMode::Absolute),
+    OpCode::new(0x7d, Mnemonic::ADC, 3, 4, AddressingMode::AbsoluteX),
+    OpCode::new(0x79, Mnemonic::ADC, 3, 4, AddressingMode::AbsoluteY),
+    OpCode::new(0x61, Mnemonic::ADC, 2, 6, AddressingMode::IndirectX),
+    OpCode::new(0x71, Mnemonic::ADC, 2, 5, AddressingMode::IndirectY),
     OpCode::new(0x00, Mnemonic::BRK, 1, 7, AddressingMode::NoneAddressing),
     OpCode::new(0xe8, Mnemonic::INX, 1, 2, AddressingMode::NoneAddressing),
     OpCode::new(0xa9, Mnemonic::LDA, 2, 2, AddressingMode::Immediate),
@@ -80,7 +89,9 @@ pub const CPU_OPCODES: &[OpCode] = &[
     OpCode::new(0xaa, Mnemonic::TAX, 1, 2, AddressingMode::NoneAddressing),
 ];
 
+pub const CARRY: u8 = 0b0000_0001;
 pub const ZERO: u8 = 0b0000_0010;
+pub const OVERFLOW: u8 = 0b0100_0000;
 pub const SIGN: u8 = 0b1000_0000;
 
 impl CPU {
@@ -126,6 +137,7 @@ impl CPU {
             for op in CPU_OPCODES {
                 if op.opcode == opcode {
                     match op.mnemonic {
+                        ADC => self.adc(op.addr_mode),
                         BRK => return,
                         INX => self.inx(),
                         LDA => self.lda(op.addr_mode),
@@ -143,6 +155,23 @@ impl CPU {
                 unimplemented!("opcode: {:x}", opcode);
             }
         }
+    }
+
+    fn adc(&mut self, mode: AddressingMode) {
+        let a = self.register_a;
+        let m = self.mem_read(self.get_operand_address(mode));
+        let c = self.get_flag(CARRY) as u8;
+
+        let (a_m, overflow1) = (a as i8).overflowing_add(m as i8);
+        let (result, overflow2) = a_m.overflowing_add(c as i8);
+        let result_carry = (a as u16).wrapping_add(m as u16).wrapping_add(c as u16) >> 8;
+        let result_sign = result >> 7;
+
+        self.register_a = result as u8;
+        self.set_flag(CARRY, result_carry != 0);
+        self.set_flag(ZERO, result == 0);
+        self.set_flag(OVERFLOW, overflow1 | overflow2);
+        self.set_flag(SIGN, result_sign != 0);
     }
 
     fn inx(&mut self) {
@@ -292,18 +321,47 @@ mod test {
     fn test_lda_from_memory() {
         let mut cpu = CPU::new();
         cpu.mem_write(0x10, 0x55);
-
         cpu.load_and_run(vec![0xa5, 0x10, 0x00]);
-
         assert_eq!(cpu.register_a, 0x55);
     }
 
     #[test]
     fn test_sta_move_a_to_memory() {
         let mut cpu = CPU::new();
-
         cpu.load_and_run(vec![0xa9, 0x10, 0x85, 0xff, 0x00]);
-
         assert_eq!(cpu.mem_read(0x00ff), 0x10);
+    }
+
+    #[test]
+    fn test_adc() {
+        let mut cpu = CPU::new();
+        cpu.load_and_run(vec![0xa9, 0x10, 0x69, 0x05, 0x00]);
+        assert_eq!(cpu.register_a, 0x15);
+        assert!(!cpu.get_flag(CARRY));
+        assert!(!cpu.get_flag(ZERO));
+        assert!(!cpu.get_flag(OVERFLOW));
+        assert!(!cpu.get_flag(SIGN));
+    }
+
+    #[test]
+    fn test_adc_overflow() {
+        let mut cpu = CPU::new();
+        cpu.load_and_run(vec![0xa9, 0x7f, 0x69, 0x01, 0x00]);
+        assert_eq!(cpu.register_a, 0x80);
+        assert!(!cpu.get_flag(CARRY));
+        assert!(!cpu.get_flag(ZERO));
+        assert!(cpu.get_flag(OVERFLOW));
+        assert!(cpu.get_flag(SIGN));
+    }
+
+    #[test]
+    fn test_adc_carry() {
+        let mut cpu = CPU::new();
+        cpu.load_and_run(vec![0xa9, 0xff, 0x69, 0x01, 0x00]);
+        assert_eq!(cpu.register_a, 0x00);
+        assert!(cpu.get_flag(CARRY));
+        assert!(cpu.get_flag(ZERO));
+        assert!(!cpu.get_flag(OVERFLOW));
+        assert!(!cpu.get_flag(SIGN));
     }
 }
