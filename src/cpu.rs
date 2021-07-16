@@ -65,6 +65,34 @@ impl CPU {
 
             match opcode {
                 0x00 => return,
+                0x81 => {
+                    self.sta(&AddressingMode::IndirectX);
+                    self.program_counter += 1;
+                }
+                0x85 => {
+                    self.sta(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0x8d => {
+                    self.sta(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0x91 => {
+                    self.sta(&AddressingMode::IndirectY);
+                    self.program_counter += 1;
+                }
+                0x95 => {
+                    self.sta(&AddressingMode::ZeroPageX);
+                    self.program_counter += 1;
+                }
+                0x99 => {
+                    self.sta(&AddressingMode::AbsoluteY);
+                    self.program_counter += 2;
+                }
+                0x9d => {
+                    self.sta(&AddressingMode::AbsoluteX);
+                    self.program_counter += 2;
+                }
                 0xa1 => {
                     self.lda(&AddressingMode::IndirectX);
                     self.program_counter += 1;
@@ -120,6 +148,11 @@ impl CPU {
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
         self.update_flags(self.register_x);
+    }
+
+    fn sta(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_address(mode);
+        self.mem_write(addr, self.register_a);
     }
 
     fn update_flags(&mut self, value: u8) {
@@ -250,5 +283,14 @@ mod test {
         cpu.load_and_run(vec![0xa5, 0x10, 0x00]);
 
         assert_eq!(cpu.register_a, 0x55);
+    }
+
+    #[test]
+    fn test_sta_move_a_to_memory() {
+        let mut cpu = CPU::new();
+
+        cpu.load_and_run(vec![0xa9, 0x10, 0x85, 0xff, 0x00]);
+
+        assert_eq!(cpu.mem_read(0x00ff), 0x10);
     }
 }
