@@ -1,6 +1,7 @@
 #[derive(Debug, Default)]
 pub struct CPU {
     pub register_a: u8,
+    pub register_x: u8,
     pub status: u8,
     pub program_counter: u8,
 }
@@ -23,13 +24,28 @@ impl CPU {
                 0x00 => return,
                 0xa9 => {
                     let param = program[self.inc_pc()];
-                    self.register_a = param;
-
-                    self.update_flags(self.register_a);
+                    self.lda(param);
                 }
+                0xaa => self.tax(),
+                0xe8 => self.inx(),
                 _ => unimplemented!(),
             }
         }
+    }
+
+    fn lda(&mut self, value: u8) {
+        self.register_a = value;
+        self.update_flags(self.register_a);
+    }
+
+    fn tax(&mut self) {
+        self.register_x = self.register_a;
+        self.update_flags(self.register_x);
+    }
+
+    fn inx(&mut self) {
+        self.register_x = self.register_x.wrapping_add(1);
+        self.update_flags(self.register_x);
     }
 
     fn update_flags(&mut self, value: u8) {
@@ -74,5 +90,28 @@ mod test {
         let mut cpu = CPU::new();
         cpu.interpret(vec![0xa9, 0x00, 0x00]);
         assert!(cpu.get_flag(ZERO));
+    }
+
+    #[test]
+    fn test_0xaa_tax_move_a_to_x() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x10;
+        cpu.interpret(vec![0xaa, 0x00]);
+        assert_eq!(cpu.register_x, 0x10);
+    }
+
+    #[test]
+    fn test_5_ops_working_together() {
+        let mut cpu = CPU::new();
+        cpu.interpret(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]);
+        assert_eq!(cpu.register_x, 0xc1);
+    }
+
+    #[test]
+    fn test_inx_overflow() {
+        let mut cpu = CPU::new();
+        cpu.register_x = 0xff;
+        cpu.interpret(vec![0xe8, 0xe8, 0x00]);
+        assert_eq!(cpu.register_x, 0x1);
     }
 }
