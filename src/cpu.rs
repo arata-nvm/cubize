@@ -56,6 +56,7 @@ pub enum Mnemonic {
     BRK,
     INX,
     LDA,
+    SBC,
     STA,
     TAX,
 }
@@ -79,6 +80,14 @@ pub const CPU_OPCODES: &[OpCode] = &[
     OpCode::new(0xb9, Mnemonic::LDA, 3, 4, AddressingMode::AbsoluteY),
     OpCode::new(0xa1, Mnemonic::LDA, 2, 6, AddressingMode::IndirectX),
     OpCode::new(0xb1, Mnemonic::LDA, 2, 5, AddressingMode::IndirectY),
+    OpCode::new(0xe9, Mnemonic::SBC, 2, 2, AddressingMode::Immediate),
+    OpCode::new(0xe5, Mnemonic::SBC, 2, 3, AddressingMode::ZeroPage),
+    OpCode::new(0xf5, Mnemonic::SBC, 2, 4, AddressingMode::ZeroPageX),
+    OpCode::new(0xed, Mnemonic::SBC, 3, 4, AddressingMode::Absolute),
+    OpCode::new(0xfd, Mnemonic::SBC, 3, 4, AddressingMode::AbsoluteX),
+    OpCode::new(0xf9, Mnemonic::SBC, 3, 4, AddressingMode::AbsoluteY),
+    OpCode::new(0xe1, Mnemonic::SBC, 2, 6, AddressingMode::IndirectX),
+    OpCode::new(0xf1, Mnemonic::SBC, 2, 5, AddressingMode::IndirectY),
     OpCode::new(0x85, Mnemonic::STA, 2, 3, AddressingMode::ZeroPage),
     OpCode::new(0x95, Mnemonic::STA, 2, 4, AddressingMode::ZeroPageX),
     OpCode::new(0x8d, Mnemonic::STA, 3, 4, AddressingMode::Absolute),
@@ -141,6 +150,7 @@ impl CPU {
                         BRK => return,
                         INX => self.inx(),
                         LDA => self.lda(op.addr_mode),
+                        SBC => self.sbc(op.addr_mode),
                         STA => self.sta(op.addr_mode),
                         TAX => self.tax(),
                     }
@@ -185,6 +195,23 @@ impl CPU {
 
         self.register_a = value;
         self.update_flags(self.register_a);
+    }
+
+    fn sbc(&mut self, mode: AddressingMode) {
+        let a = self.register_a;
+        let m = self.mem_read(self.get_operand_address(mode));
+        let c = !self.get_flag(CARRY) as u8;
+
+        let (a_m, overflow1) = (a as i8).overflowing_sub(m as i8);
+        let (result, overflow2) = a_m.overflowing_sub(c as i8);
+        let result_carry = (a as u16).wrapping_sub(m as u16).wrapping_sub(c as u16) >> 8;
+        let result_sign = result >> 7;
+
+        self.register_a = result as u8;
+        self.set_flag(CARRY, result_carry != 0);
+        self.set_flag(ZERO, result == 0);
+        self.set_flag(OVERFLOW, overflow1 | overflow2);
+        self.set_flag(SIGN, result_sign != 0);
     }
 
     fn sta(&mut self, mode: AddressingMode) {
@@ -361,6 +388,17 @@ mod test {
         assert_eq!(cpu.register_a, 0x00);
         assert!(cpu.get_flag(CARRY));
         assert!(cpu.get_flag(ZERO));
+        assert!(!cpu.get_flag(OVERFLOW));
+        assert!(!cpu.get_flag(SIGN));
+    }
+
+    #[test]
+    fn test_sbc() {
+        let mut cpu = CPU::new();
+        cpu.load_and_run(vec![0xa9, 0x10, 0xe9, 0x0f, 0x00]);
+        assert_eq!(cpu.register_a, 0x00);
+        assert!(!cpu.get_flag(CARRY));
+        assert!(!cpu.get_flag(ZERO));
         assert!(!cpu.get_flag(OVERFLOW));
         assert!(!cpu.get_flag(SIGN));
     }
