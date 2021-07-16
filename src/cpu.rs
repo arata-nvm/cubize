@@ -2,10 +2,25 @@
 pub struct CPU {
     pub register_a: u8,
     pub register_x: u8,
+    pub register_y: u8,
     pub status: u8,
     pub program_counter: u16,
 
     memory: [u8; 0xffff],
+}
+
+#[derive(Debug)]
+pub enum AddressingMode {
+    Immediate,
+    ZeroPage,
+    ZeroPageX,
+    ZeroPageY,
+    Absolute,
+    AbsoluteX,
+    AbsoluteY,
+    IndirectX,
+    IndirectY,
+    NoneAddressing,
 }
 
 pub const ZERO: u8 = 0b0000_0010;
@@ -16,6 +31,7 @@ impl CPU {
         Self {
             register_a: 0,
             register_x: 0,
+            register_y: 0,
             status: 0,
             program_counter: 0,
 
@@ -49,20 +65,49 @@ impl CPU {
 
             match opcode {
                 0x00 => return,
-                0xa9 => {
-                    let param = self.mem_read(self.program_counter);
+                0xa1 => {
+                    self.lda(&AddressingMode::IndirectX);
                     self.program_counter += 1;
-
-                    self.lda(param);
+                }
+                0xa5 => {
+                    self.lda(&AddressingMode::ZeroPage);
+                    self.program_counter += 1;
+                }
+                0xa9 => {
+                    self.lda(&AddressingMode::Immediate);
+                    self.program_counter += 1;
                 }
                 0xaa => self.tax(),
+                0xad => {
+                    self.lda(&AddressingMode::Absolute);
+                    self.program_counter += 2;
+                }
+                0xb1 => {
+                    self.lda(&AddressingMode::IndirectY);
+                    self.program_counter += 1;
+                }
+                0xb5 => {
+                    self.lda(&AddressingMode::ZeroPageX);
+                    self.program_counter += 1;
+                }
+                0xb9 => {
+                    self.lda(&AddressingMode::AbsoluteY);
+                    self.program_counter += 2;
+                }
+                0xbd => {
+                    self.lda(&AddressingMode::AbsoluteX);
+                    self.program_counter += 2;
+                }
                 0xe8 => self.inx(),
                 _ => unimplemented!(),
             }
         }
     }
 
-    fn lda(&mut self, value: u8) {
+    fn lda(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_address(mode);
+        let value = self.mem_read(addr);
+
         self.register_a = value;
         self.update_flags(self.register_a);
     }
@@ -114,6 +159,46 @@ impl CPU {
     fn mem_write(&mut self, addr: u16, data: u8) {
         self.memory[addr as usize] = data;
     }
+
+    fn get_operand_address(&self, mode: &AddressingMode) -> u16 {
+        use self::AddressingMode::*;
+
+        match mode {
+            Immediate => self.program_counter,
+            ZeroPage => self.mem_read(self.program_counter) as u16,
+            Absolute => self.mem_read_u16(self.program_counter),
+
+            ZeroPageX => {
+                let base = self.mem_read(self.program_counter);
+                base.wrapping_add(self.register_x) as u16
+            }
+            ZeroPageY => {
+                let base = self.mem_read(self.program_counter);
+                base.wrapping_add(self.register_y) as u16
+            }
+
+            AbsoluteX => {
+                let base = self.mem_read_u16(self.program_counter);
+                base.wrapping_add(self.register_x as u16)
+            }
+            AbsoluteY => {
+                let base = self.mem_read_u16(self.program_counter);
+                base.wrapping_add(self.register_y as u16)
+            }
+
+            IndirectX => {
+                let base = self.mem_read(self.program_counter) as u16;
+                let addr = base.wrapping_add(self.register_x as u16);
+                self.mem_read_u16(addr)
+            }
+            IndirectY => {
+                let addr = self.mem_read(self.program_counter) as u16;
+                self.mem_read_u16(addr) + self.register_y as u16
+            }
+
+            NoneAddressing => panic!("{:?} is not supported", mode),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -155,5 +240,15 @@ mod test {
         let mut cpu = CPU::new();
         cpu.load_and_run(vec![0xa9, 0xff, 0xaa, 0xe8, 0xe8, 0x00]);
         assert_eq!(cpu.register_x, 0x1);
+    }
+
+    #[test]
+    fn test_lda_from_memory() {
+        let mut cpu = CPU::new();
+        cpu.mem_write(0x10, 0x55);
+
+        cpu.load_and_run(vec![0xa5, 0x10, 0x00]);
+
+        assert_eq!(cpu.register_a, 0x55);
     }
 }
