@@ -9,7 +9,7 @@ pub struct CPU {
     memory: [u8; 0xffff],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum AddressingMode {
     Immediate,
     ZeroPage,
@@ -22,6 +22,63 @@ pub enum AddressingMode {
     IndirectY,
     NoneAddressing,
 }
+
+#[derive(Debug)]
+pub struct OpCode {
+    opcode: u8,
+    mnemonic: Mnemonic,
+    bytes: u8,
+    cycles: u8,
+    addr_mode: AddressingMode,
+}
+
+impl OpCode {
+    const fn new(
+        opcode: u8,
+        mnemonic: Mnemonic,
+        bytes: u8,
+        cycles: u8,
+        addr_mode: AddressingMode,
+    ) -> Self {
+        Self {
+            opcode,
+            mnemonic,
+            bytes,
+            cycles,
+            addr_mode,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Mnemonic {
+    BRK,
+    INX,
+    LDA,
+    STA,
+    TAX,
+}
+
+pub const CPU_OPCODES: &[OpCode] = &[
+    OpCode::new(0x00, Mnemonic::BRK, 1, 7, AddressingMode::NoneAddressing),
+    OpCode::new(0xe8, Mnemonic::INX, 1, 2, AddressingMode::NoneAddressing),
+    OpCode::new(0xa9, Mnemonic::LDA, 2, 2, AddressingMode::Immediate),
+    OpCode::new(0xa5, Mnemonic::LDA, 2, 3, AddressingMode::ZeroPage),
+    OpCode::new(0xb5, Mnemonic::LDA, 2, 4, AddressingMode::ZeroPageX),
+    OpCode::new(0xad, Mnemonic::LDA, 3, 4, AddressingMode::Absolute),
+    OpCode::new(0xbd, Mnemonic::LDA, 3, 4, AddressingMode::AbsoluteX),
+    OpCode::new(0xb9, Mnemonic::LDA, 3, 4, AddressingMode::AbsoluteY),
+    OpCode::new(0xa1, Mnemonic::LDA, 2, 6, AddressingMode::IndirectX),
+    OpCode::new(0xb1, Mnemonic::LDA, 2, 5, AddressingMode::IndirectY),
+    OpCode::new(0x85, Mnemonic::STA, 2, 3, AddressingMode::ZeroPage),
+    OpCode::new(0x95, Mnemonic::STA, 2, 4, AddressingMode::ZeroPageX),
+    OpCode::new(0x8d, Mnemonic::STA, 3, 4, AddressingMode::Absolute),
+    OpCode::new(0x9d, Mnemonic::STA, 3, 5, AddressingMode::AbsoluteX),
+    OpCode::new(0x99, Mnemonic::STA, 3, 5, AddressingMode::AbsoluteY),
+    OpCode::new(0x81, Mnemonic::STA, 2, 6, AddressingMode::IndirectX),
+    OpCode::new(0x91, Mnemonic::STA, 2, 6, AddressingMode::IndirectY),
+    OpCode::new(0xaa, Mnemonic::TAX, 1, 2, AddressingMode::NoneAddressing),
+];
 
 pub const ZERO: u8 = 0b0000_0010;
 pub const SIGN: u8 = 0b1000_0000;
@@ -59,90 +116,33 @@ impl CPU {
     }
 
     pub fn run(&mut self) {
+        use self::Mnemonic::*;
+
         loop {
             let opcode = self.mem_read(self.program_counter);
             self.program_counter += 1;
 
-            match opcode {
-                0x00 => return,
-                0x81 => {
-                    self.sta(&AddressingMode::IndirectX);
-                    self.program_counter += 1;
+            let mut done = false;
+            for op in CPU_OPCODES {
+                if op.opcode == opcode {
+                    match op.mnemonic {
+                        BRK => return,
+                        INX => self.inx(),
+                        LDA => self.lda(op.addr_mode),
+                        STA => self.sta(op.addr_mode),
+                        TAX => self.tax(),
+                    }
+
+                    self.program_counter += op.bytes as u16 - 1;
+                    done = true;
+                    break;
                 }
-                0x85 => {
-                    self.sta(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
-                }
-                0x8d => {
-                    self.sta(&AddressingMode::Absolute);
-                    self.program_counter += 2;
-                }
-                0x91 => {
-                    self.sta(&AddressingMode::IndirectY);
-                    self.program_counter += 1;
-                }
-                0x95 => {
-                    self.sta(&AddressingMode::ZeroPageX);
-                    self.program_counter += 1;
-                }
-                0x99 => {
-                    self.sta(&AddressingMode::AbsoluteY);
-                    self.program_counter += 2;
-                }
-                0x9d => {
-                    self.sta(&AddressingMode::AbsoluteX);
-                    self.program_counter += 2;
-                }
-                0xa1 => {
-                    self.lda(&AddressingMode::IndirectX);
-                    self.program_counter += 1;
-                }
-                0xa5 => {
-                    self.lda(&AddressingMode::ZeroPage);
-                    self.program_counter += 1;
-                }
-                0xa9 => {
-                    self.lda(&AddressingMode::Immediate);
-                    self.program_counter += 1;
-                }
-                0xaa => self.tax(),
-                0xad => {
-                    self.lda(&AddressingMode::Absolute);
-                    self.program_counter += 2;
-                }
-                0xb1 => {
-                    self.lda(&AddressingMode::IndirectY);
-                    self.program_counter += 1;
-                }
-                0xb5 => {
-                    self.lda(&AddressingMode::ZeroPageX);
-                    self.program_counter += 1;
-                }
-                0xb9 => {
-                    self.lda(&AddressingMode::AbsoluteY);
-                    self.program_counter += 2;
-                }
-                0xbd => {
-                    self.lda(&AddressingMode::AbsoluteX);
-                    self.program_counter += 2;
-                }
-                0xe8 => self.inx(),
-                _ => unimplemented!(),
+            }
+
+            if !done {
+                unimplemented!("opcode: {:x}", opcode);
             }
         }
-    }
-
-    fn lda(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
-        let value = self.mem_read(addr);
-
-        self.register_a = value;
-        self.update_flags(self.register_a);
-    }
-
-    fn tax(&mut self) {
-        self.register_x = self.register_a;
-        self.update_flags(self.register_x);
     }
 
     fn inx(&mut self) {
@@ -150,9 +150,22 @@ impl CPU {
         self.update_flags(self.register_x);
     }
 
-    fn sta(&mut self, mode: &AddressingMode) {
+    fn lda(&mut self, mode: AddressingMode) {
+        let addr = self.get_operand_address(mode);
+        let value = self.mem_read(addr);
+
+        self.register_a = value;
+        self.update_flags(self.register_a);
+    }
+
+    fn sta(&mut self, mode: AddressingMode) {
         let addr = self.get_operand_address(mode);
         self.mem_write(addr, self.register_a);
+    }
+
+    fn tax(&mut self) {
+        self.register_x = self.register_a;
+        self.update_flags(self.register_x);
     }
 
     fn update_flags(&mut self, value: u8) {
@@ -193,7 +206,7 @@ impl CPU {
         self.memory[addr as usize] = data;
     }
 
-    fn get_operand_address(&self, mode: &AddressingMode) -> u16 {
+    fn get_operand_address(&self, mode: AddressingMode) -> u16 {
         use self::AddressingMode::*;
 
         match mode {
